@@ -1,21 +1,22 @@
 # 🧾 NF Archiver — Arquivador Automático de Notas Fiscais
 
-> Automação para capturar notas fiscais recebidas via Gmail, organizá-las por ano, mês e fornecedor no Google Drive, e gerar log de execução — desenvolvido para o setor de TI do HAMA.
+> Automação para capturar notas fiscais e anexos recebidos via Gmail, organizá-los por fornecedor no Google Drive e gerar log de auditoria — desenvolvido para o setor de TI do HAMA.
 
 ---
 
 ## 📌 Visão Geral
 
-Notas fiscais chegam por e-mail em diferentes formatos (PDF, XML, imagem) e de diferentes fornecedores. Sem automação, o arquivamento é manual, sujeito a erros e difícil de auditar.
+Notas fiscais chegam por e-mail em diferentes formatos e de diferentes fornecedores. Sem automação, o arquivamento é manual, sujeito a erros e difícil de auditar.
 
 Este script resolve isso de forma automática:
 
 1. Lê e-mails com o marcador `Notas Fiscais TI` no Gmail
-2. Filtra apenas os anexos com formato de nota fiscal (PDF, XML, JPG, PNG)
-3. Organiza no Google Drive em estrutura hierárquica por **Ano → Mês → Fornecedor**
-4. Evita duplicatas verificando se o arquivo já existe
-5. Gera log de execução com data, fornecedor e arquivo arquivado
-6. Arquiva os e-mails processados, mantendo a caixa limpa
+2. Identifica o fornecedor pelo e-mail remetente via dicionário configurável
+3. Separa **notas fiscais** (PDF, XML, imagens) de **anexos complementares** (boletos, contratos, etc.)
+4. Organiza no Google Drive em estrutura hierárquica por **Ano → Mês → Fornecedor**
+5. Evita duplicatas verificando se o arquivo já existe antes de criar
+6. Gera log de auditoria com tipo, fornecedor, remetente e arquivo
+7. Arquiva os e-mails processados, mantendo a caixa limpa
 
 ---
 
@@ -24,25 +25,73 @@ Este script resolve isso de forma automática:
 ```
 📁 Notas Fiscais TI/
 ├── 📁 2026/
-│   ├── 📁 03 - Março/
-│   │   ├── 📁 Fornecedor_LTDA/
-│   │   │   ├── 📄 NF_2026-03-14_Fornecedor_LTDA.pdf
-│   │   │   └── 📄 NF_2026-03-14_Fornecedor_LTDA.xml
-│   │   └── 📁 Tech_Distribuidora/
-│   │       └── 📄 NF_2026-03-10_Tech_Distribuidora.pdf
-│   └── 📁 04 - Abril/
-│       └── ...
+│   └── 📁 03 - Março/
+│       ├── 📁 Executiva/
+│       │   ├── 📄 NF_2026-03-14_Executiva.pdf
+│       │   ├── 📄 NF_2026-03-14_Executiva.xml
+│       │   └── 📁 _anexos/
+│       │       └── 📄 ANEXO_2026-03-14_Executiva_boleto.pdf
+│       ├── 📁 Star_Seguranca/
+│       │   └── 📄 NF_2026-03-14_Star_Seguranca.pdf
+│       └── 📁 DigitalFiber/
+│           └── 📄 NF_2026-03-14_DigitalFiber.xml
 └── 📁 _logs/
     └── 📄 log_execucao_2026-03-14_08-00.txt
 ```
 
 ---
 
+## 📎 Separação de Arquivos
+
+| Tipo | Extensões | Destino | Prefixo |
+|---|---|---|---|
+| Nota Fiscal | `pdf`, `xml`, `jpg`, `jpeg`, `png` | Pasta do fornecedor | `NF_` |
+| Anexo complementar | `docx`, `xlsx`, `txt`, e outros | Subpasta `_anexos/` | `ANEXO_` |
+
+---
+
+## 🏷️ Nomenclatura dos Arquivos
+
+```
+NF_2026-03-14_Executiva.pdf
+NF_2026-03-14_Executiva.xml
+NF_2026-03-14_DigitalFiber_1.pdf      ← índice quando há múltiplos anexos do mesmo tipo
+NF_2026-03-14_DigitalFiber_2.xml
+ANEXO_2026-03-14_Executiva_boleto.pdf
+```
+
+---
+
+## 🏢 Dicionário de Fornecedores
+
+O script identifica o fornecedor pelo e-mail remetente com três níveis de prioridade:
+
+1. **E-mail exato** — `digitalfiberadm@gmail.com` → `DigitalFiber`
+2. **Domínio** — `faturamento@executiva.net` → `Executiva`
+3. **Fallback automático** — domínio desconhecido → nome capitalizado do domínio
+
+Fornecedores pré-configurados:
+
+| E-mail / Domínio | Fornecedor |
+|---|---|
+| `digitalfiberadm@gmail.com` | DigitalFiber |
+| `silvia@xlogic.com.br` | XLogic |
+| `microgm@microesoftloc.com.br` | MicroSoft_Loc |
+| `omie.com.br` | Omie |
+| `executiva.net` | Executiva |
+| `starseguranca.com` | Star_Seguranca |
+| `smedtecnologia.com.br` | SMED_Tecnologia |
+| `tld.com.br` | TLD |
+
+Para adicionar novos fornecedores, edite o objeto `FORNECEDORES` no topo do script.
+
+---
+
 ## ⚙️ Pré-requisitos
 
 - Conta Google com acesso ao **Google Apps Script**
-- Gmail com marcador/label criado para receber as notas fiscais
-- Pasta criada no **Google Drive** para servir de destino
+- Gmail com marcador/label `Notas Fiscais TI` criado
+- Pasta de destino criada no **Google Drive**
 
 ---
 
@@ -60,55 +109,39 @@ No topo do script, ajuste o objeto `CONFIG`:
 var CONFIG = {
   MARCADOR_GMAIL:   "Notas Fiscais TI",  // Nome do marcador no Gmail
   PASTA_RAIZ_ID:    "SEU_ID_AQUI",       // ID da pasta raiz no Drive
-  FUSO_HORARIO:     "GMT-3",             // Fuso horário de Aracaju/SE
-  FORMATOS_ACEITOS: ["pdf", "xml", "jpg", "jpeg", "png"],
+  FUSO_HORARIO:     "GMT-3",             // Fuso horário local
+  FORMATOS_NF:      ["pdf", "xml"],      // Extensões tratadas como NF
+  FORMATOS_IMAGEM:  ["jpg", "jpeg", "png"],
   MAX_THREADS:      50                   // Máx. de e-mails por execução
 };
 ```
 
-> 💡 **Como obter o ID da pasta:** abra a pasta no Drive. O ID é a sequência após `/folders/` na URL.
+> 💡 **Como obter o ID da pasta:** abra a pasta no Drive — o ID é a sequência após `/folders/` na URL.
 
 ### 3. Autorize as permissões
 
-Na primeira execução, o Google solicitará permissão para acessar Gmail e Drive. Clique em **Permitir**.
+Na primeira execução, o Google solicitará acesso ao Gmail e Drive. Clique em **Permitir**.
 
 ### 4. Configure o gatilho automático
 
-Para rodar diariamente de forma automática:
-
-- No Apps Script → **Gatilhos** (ícone de relógio) → **+ Adicionar gatilho**
+- No Apps Script → **Gatilhos** → **+ Adicionar gatilho**
 - Função: `arquivarNotasFiscais`
 - Evento: **Com base no tempo → Diário**
-- Horário sugerido: entre 7h e 8h (início do expediente)
+- Horário sugerido: 7h–8h (início do expediente)
 
 ---
 
-## 📄 Nomenclatura dos Arquivos
+## 📋 Log de Auditoria
 
-Os arquivos são salvos no padrão:
-
-```
-NF_{data}_{fornecedor}.{ext}
-
-Exemplo:
-NF_2026-03-14_Fornecedor_LTDA.pdf
-NF_2026-03-14_Tech_Distribuidora_1.xml   ← índice quando há múltiplos anexos
-NF_2026-03-14_Tech_Distribuidora_2.pdf
-```
-
-O nome do fornecedor é extraído automaticamente do campo **De:** do e-mail.
-
----
-
-## 📋 Log de Execução
-
-A cada execução, um arquivo de log é salvo na pasta `_logs/`:
+A cada execução, um log é salvo em `_logs/` com o seguinte formato:
 
 ```
-Data       | Fornecedor          | Arquivo
-============================================================
-2026-03-14 | Fornecedor_LTDA     | NF_2026-03-14_Fornecedor_LTDA.pdf
-2026-03-14 | Tech_Distribuidora  | NF_2026-03-14_Tech_Distribuidora.xml
+Data       | Tipo   | Fornecedor    | E-mail Remetente           | Arquivo
+====================================================================================================
+2026-03-14 | NF     | Executiva     | faturamento@executiva.net  | NF_2026-03-14_Executiva.pdf
+2026-03-14 | NF     | Executiva     | faturamento@executiva.net  | NF_2026-03-14_Executiva.xml
+2026-03-14 | ANEXO  | Executiva     | faturamento@executiva.net  | ANEXO_2026-03-14_Executiva_boleto.pdf
+2026-03-14 | NF     | Star_Seguranca| faturamento@starseguranca.com | NF_2026-03-14_Star_Seguranca.pdf
 ```
 
 ---
@@ -117,18 +150,18 @@ Data       | Fornecedor          | Arquivo
 
 | Limitação | Detalhe |
 |---|---|
-| Quota do Apps Script | Execuções limitadas a ~6 min. Ajuste `MAX_THREADS` para grandes volumes |
-| Nome do fornecedor | Extraído do campo "De:" — e-mails sem nome amigável usam o domínio |
-| Formatos aceitos | Apenas os listados em `FORMATOS_ACEITOS` são arquivados |
+| Quota do Apps Script | Execuções limitadas a ~6 min. Reduza `MAX_THREADS` para grandes volumes |
+| Fornecedor desconhecido | Se o domínio não estiver no dicionário, usa o nome do domínio capitalizado |
+| Inline images | Imagens embutidas no corpo do e-mail não são capturadas, apenas anexos reais |
 
 ---
 
 ## 🔧 Melhorias Planejadas
 
-- [ ] Relatório mensal em PDF com consolidado de notas arquivadas
-- [ ] Notificação por e-mail ao gestor após cada execução
-- [ ] Suporte a múltiplos marcadores (um por categoria de compra)
 - [ ] Extração automática do número da NF a partir do XML NF-e
+- [ ] Relatório mensal consolidado em PDF
+- [ ] Notificação por e-mail ao gestor após cada execução
+- [ ] Suporte a múltiplos marcadores por categoria de compra
 
 ---
 
