@@ -1,168 +1,153 @@
-// ============================================================
-// Arquivador Automático de Notas Fiscais — HAMA TI
-// Google Apps Script
-// Autor: Fernando S. De Santana Júnior
-// Versão: 1.0
-// ============================================================
-//
-// CONFIGURAÇÃO — ajuste antes de usar:
-//   MARCADOR_GMAIL   : nome do marcador/label no Gmail
-//   PASTA_RAIZ_ID    : ID da pasta raiz no Google Drive
-//   FUSO_HORARIO     : fuso do servidor
-//   FORMATOS_ACEITOS : extensões de arquivo aceitas como NF
-//
-// ESTRUTURA gerada no Drive:
-//   📁 Notas Fiscais TI/
-//   └── 📁 2026/
-//       └── 📁 03 - Março/
-//           └── 📁 Fornecedor LTDA/
-//               ├── 📄 NF_2026-03-14_Fornecedor_LTDA.pdf
-//               └── 📄 NF_2026-03-14_Fornecedor_LTDA.xml
-// ============================================================
+# 🧾 NF Archiver — Arquivador Automático de Notas Fiscais
 
+> Automação para capturar notas fiscais recebidas via Gmail, organizá-las por ano, mês e fornecedor no Google Drive, e gerar log de execução — desenvolvido para o setor de TI do HAMA.
+
+---
+
+## 📌 Visão Geral
+
+Notas fiscais chegam por e-mail em diferentes formatos (PDF, XML, imagem) e de diferentes fornecedores. Sem automação, o arquivamento é manual, sujeito a erros e difícil de auditar.
+
+Este script resolve isso de forma automática:
+
+1. Lê e-mails com o marcador `Notas Fiscais TI` no Gmail
+2. Filtra apenas os anexos com formato de nota fiscal (PDF, XML, JPG, PNG)
+3. Organiza no Google Drive em estrutura hierárquica por **Ano → Mês → Fornecedor**
+4. Evita duplicatas verificando se o arquivo já existe
+5. Gera log de execução com data, fornecedor e arquivo arquivado
+6. Arquiva os e-mails processados, mantendo a caixa limpa
+
+---
+
+## 🗂️ Estrutura no Google Drive
+
+```
+📁 Notas Fiscais TI/
+├── 📁 2026/
+│   ├── 📁 03 - Março/
+│   │   ├── 📁 Fornecedor_LTDA/
+│   │   │   ├── 📄 NF_2026-03-14_Fornecedor_LTDA.pdf
+│   │   │   └── 📄 NF_2026-03-14_Fornecedor_LTDA.xml
+│   │   └── 📁 Tech_Distribuidora/
+│   │       └── 📄 NF_2026-03-10_Tech_Distribuidora.pdf
+│   └── 📁 04 - Abril/
+│       └── ...
+└── 📁 _logs/
+    └── 📄 log_execucao_2026-03-14_08-00.txt
+```
+
+---
+
+## ⚙️ Pré-requisitos
+
+- Conta Google com acesso ao **Google Apps Script**
+- Gmail com marcador/label criado para receber as notas fiscais
+- Pasta criada no **Google Drive** para servir de destino
+
+---
+
+## 🛠️ Como Configurar
+
+### 1. Crie o projeto no Apps Script
+
+Acesse [script.google.com](https://script.google.com) → **Novo Projeto** → cole o conteúdo do arquivo `nf_archiver.gs`.
+
+### 2. Configure as variáveis
+
+No topo do script, ajuste o objeto `CONFIG`:
+
+```javascript
 var CONFIG = {
-  MARCADOR_GMAIL:   "Notas Fiscais TI",
-  PASTA_RAIZ_ID:    "SEU_ID_AQUI",
-  FUSO_HORARIO:     "GMT-3",
+  MARCADOR_GMAIL:   "Notas Fiscais TI",  // Nome do marcador no Gmail
+  PASTA_RAIZ_ID:    "SEU_ID_AQUI",       // ID da pasta raiz no Drive
+  FUSO_HORARIO:     "GMT-3",             // Fuso horário de Aracaju/SE
   FORMATOS_ACEITOS: ["pdf", "xml", "jpg", "jpeg", "png"],
-  MAX_THREADS:      50
+  MAX_THREADS:      50                   // Máx. de e-mails por execução
 };
+```
 
-var MESES = {
-  "01": "Janeiro", "02": "Fevereiro", "03": "Março",
-  "04": "Abril",   "05": "Maio",      "06": "Junho",
-  "07": "Julho",   "08": "Agosto",    "09": "Setembro",
-  "10": "Outubro", "11": "Novembro",  "12": "Dezembro"
-};
+> 💡 **Como obter o ID da pasta:** abra a pasta no Drive. O ID é a sequência após `/folders/` na URL.
 
-// ============================================================
-// FUNÇÃO PRINCIPAL
-// ============================================================
-function arquivarNotasFiscais() {
-  var marcador = GmailApp.getUserLabelByName(CONFIG.MARCADOR_GMAIL);
-  if (!marcador) {
-    Logger.log("❌ Marcador '" + CONFIG.MARCADOR_GMAIL + "' não encontrado no Gmail.");
-    return;
-  }
+### 3. Autorize as permissões
 
-  var pastaRaiz = DriveApp.getFolderById(CONFIG.PASTA_RAIZ_ID);
-  var threads   = marcador.getThreads(0, CONFIG.MAX_THREADS);
+Na primeira execução, o Google solicitará permissão para acessar Gmail e Drive. Clique em **Permitir**.
 
-  Logger.log("📬 Processando " + threads.length + " thread(s)...");
+### 4. Configure o gatilho automático
 
-  var totalArquivados = 0;
-  var totalErros      = 0;
-  var logLinhas       = [];
+Para rodar diariamente de forma automática:
 
-  for (var i = 0; i < threads.length; i++) {
-    var mensagens = threads[i].getMessages();
+- No Apps Script → **Gatilhos** (ícone de relógio) → **+ Adicionar gatilho**
+- Função: `arquivarNotasFiscais`
+- Evento: **Com base no tempo → Diário**
+- Horário sugerido: entre 7h e 8h (início do expediente)
 
-    for (var j = 0; j < mensagens.length; j++) {
-      var msg     = mensagens[j];
-      var anexos  = msg.getAttachments();
-      var data    = msg.getDate();
-      var remetente = extrairNomeRemetente(msg.getFrom());
+---
 
-      // Filtra apenas anexos com formato aceito
-      var nfsEncontradas = anexos.filter(function(a) {
-        var ext = obterExtensao(a.getName());
-        return CONFIG.FORMATOS_ACEITOS.indexOf(ext) !== -1;
-      });
+## 📄 Nomenclatura dos Arquivos
 
-      if (nfsEncontradas.length === 0) continue;
+Os arquivos são salvos no padrão:
 
-      try {
-        // Monta estrutura de pastas: Ano > Mês > Fornecedor
-        var ano      = Utilities.formatDate(data, CONFIG.FUSO_HORARIO, "yyyy");
-        var mes      = Utilities.formatDate(data, CONFIG.FUSO_HORARIO, "MM");
-        var diaMesAno = Utilities.formatDate(data, CONFIG.FUSO_HORARIO, "yyyy-MM-dd");
-        var nomeMes  = mes + " - " + MESES[mes];
+```
+NF_{data}_{fornecedor}.{ext}
 
-        var pastaAno        = obterOuCriarPasta(pastaRaiz, ano);
-        var pastaMes        = obterOuCriarPasta(pastaAno, nomeMes);
-        var pastaFornecedor = obterOuCriarPasta(pastaMes, remetente);
+Exemplo:
+NF_2026-03-14_Fornecedor_LTDA.pdf
+NF_2026-03-14_Tech_Distribuidora_1.xml   ← índice quando há múltiplos anexos
+NF_2026-03-14_Tech_Distribuidora_2.pdf
+```
 
-        for (var k = 0; k < nfsEncontradas.length; k++) {
-          var anexo    = nfsEncontradas[k];
-          var nomeBase = "NF_" + diaMesAno + "_" + sanitizarNome(remetente);
-          var ext      = obterExtensao(anexo.getName());
-          var nomeArq  = nomeBase + (nfsEncontradas.length > 1 ? "_" + (k + 1) : "") + "." + ext;
+O nome do fornecedor é extraído automaticamente do campo **De:** do e-mail.
 
-          // Evita duplicatas
-          if (arquivoJaExiste(pastaFornecedor, nomeArq)) {
-            Logger.log("⏭️  Já existe: " + nomeArq);
-            continue;
-          }
+---
 
-          var blob = anexo.copyBlob().setName(nomeArq);
-          pastaFornecedor.createFile(blob);
+## 📋 Log de Execução
 
-          Logger.log("✅ Arquivado: " + nomeArq);
-          logLinhas.push(diaMesAno + " | " + remetente + " | " + nomeArq);
-          totalArquivados++;
-        }
+A cada execução, um arquivo de log é salvo na pasta `_logs/`:
 
-      } catch (e) {
-        Logger.log("❌ Erro ao processar e-mail de '" + remetente + "': " + e.message);
-        totalErros++;
-      }
-    }
+```
+Data       | Fornecedor          | Arquivo
+============================================================
+2026-03-14 | Fornecedor_LTDA     | NF_2026-03-14_Fornecedor_LTDA.pdf
+2026-03-14 | Tech_Distribuidora  | NF_2026-03-14_Tech_Distribuidora.xml
+```
 
-    // Arquiva e remove marcador após processar thread
-    threads[i].removeLabel(marcador);
-    threads[i].moveToArchive();
-  }
+---
 
-  // Salva log de execução no Drive
-  if (logLinhas.length > 0) {
-    salvarLog(pastaRaiz, logLinhas);
-  }
+## ⚠️ Limitações Conhecidas
 
-  Logger.log("========================================");
-  Logger.log("✅ Arquivados : " + totalArquivados);
-  Logger.log("❌ Erros      : " + totalErros);
-  Logger.log("========================================");
-}
+| Limitação | Detalhe |
+|---|---|
+| Quota do Apps Script | Execuções limitadas a ~6 min. Ajuste `MAX_THREADS` para grandes volumes |
+| Nome do fornecedor | Extraído do campo "De:" — e-mails sem nome amigável usam o domínio |
+| Formatos aceitos | Apenas os listados em `FORMATOS_ACEITOS` são arquivados |
 
-// ============================================================
-// FUNÇÕES AUXILIARES
-// ============================================================
+---
 
-function obterOuCriarPasta(pai, nome) {
-  var iter = pai.getFoldersByName(nome);
-  return iter.hasNext() ? iter.next() : pai.createFolder(nome);
-}
+## 🔧 Melhorias Planejadas
 
-function arquivoJaExiste(pasta, nomeArquivo) {
-  var iter = pasta.getFilesByName(nomeArquivo);
-  return iter.hasNext();
-}
+- [ ] Relatório mensal em PDF com consolidado de notas arquivadas
+- [ ] Notificação por e-mail ao gestor após cada execução
+- [ ] Suporte a múltiplos marcadores (um por categoria de compra)
+- [ ] Extração automática do número da NF a partir do XML NF-e
 
-function extrairNomeRemetente(from) {
-  // "Fornecedor LTDA <nf@fornecedor.com.br>" → "Fornecedor LTDA"
-  var match = from.match(/^"?([^"<]+)"?\s*</);
-  if (match) return sanitizarNome(match[1].trim());
-  // Sem nome, usa domínio do e-mail
-  var emailMatch = from.match(/@([^>]+)/);
-  if (emailMatch) return sanitizarNome(emailMatch[1].split(".")[0]);
-  return "Desconhecido";
-}
+---
 
-function obterExtensao(nomeArquivo) {
-  var partes = nomeArquivo.toLowerCase().split(".");
-  return partes.length > 1 ? partes[partes.length - 1] : "";
-}
+## 🧰 Stack
 
-function sanitizarNome(nome) {
-  return nome.replace(/[\/\\?%*:|"<>]/g, "-").replace(/\s+/g, "_").trim();
-}
+![Google Apps Script](https://img.shields.io/badge/Google%20Apps%20Script-4285F4?style=for-the-badge&logo=google&logoColor=white)
+![Gmail API](https://img.shields.io/badge/Gmail%20API-EA4335?style=for-the-badge&logo=gmail&logoColor=white)
+![Google Drive](https://img.shields.io/badge/Google%20Drive-34A853?style=for-the-badge&logo=googledrive&logoColor=white)
 
-function salvarLog(pastaRaiz, linhas) {
-  var dataHoje  = Utilities.formatDate(new Date(), CONFIG.FUSO_HORARIO, "yyyy-MM-dd_HH-mm");
-  var nomeLog   = "log_execucao_" + dataHoje + ".txt";
-  var cabecalho = "Data | Fornecedor | Arquivo\n" + "=".repeat(60) + "\n";
-  var conteudo  = cabecalho + linhas.join("\n");
-  var pastaLogs = obterOuCriarPasta(pastaRaiz, "_logs");
-  pastaLogs.createFile(nomeLog, conteudo, MimeType.PLAIN_TEXT);
-  Logger.log("📋 Log salvo: " + nomeLog);
-}
+---
+
+## 👤 Autor
+
+**Fernando S. De Santana Júnior**
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=flat&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/fernando-junior-1a74ab29b/)
+[![GitHub](https://img.shields.io/badge/GitHub-100000?style=flat&logo=github&logoColor=white)](https://github.com/fernando-msa)
+
+---
+
+## 📜 Licença
+
+Distribuído sob licença MIT.
