@@ -25,13 +25,16 @@ var FORNECEDORES_CONFIG = {
 
 function obterMapaFornecedores() {
   var mapa = {};
+  var config = (FORNECEDORES_CONFIG && typeof FORNECEDORES_CONFIG === "object") ? FORNECEDORES_CONFIG : {};
+  var porEmail = (config.porEmail && typeof config.porEmail === "object") ? config.porEmail : {};
+  var porDominio = (config.porDominio && typeof config.porDominio === "object") ? config.porDominio : {};
 
-  for (var email in FORNECEDORES_CONFIG.porEmail) {
-    mapa[email] = FORNECEDORES_CONFIG.porEmail[email];
+  for (var email in porEmail) {
+    mapa[email] = porEmail[email];
   }
 
-  for (var dominio in FORNECEDORES_CONFIG.porDominio) {
-    mapa[dominio] = FORNECEDORES_CONFIG.porDominio[dominio];
+  for (var dominio in porDominio) {
+    mapa[dominio] = porDominio[dominio];
   }
 
   return mapa;
