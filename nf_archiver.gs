@@ -27,22 +27,9 @@ var CONFIG = {
 
 // ============================================================
 // DICIONÁRIO DE FORNECEDORES
+// Carregado do arquivo modular `fornecedores.config.gs`
 // ============================================================
-var FORNECEDORES = {
-  // Por e-mail exato
-  "digitalfiberadm@gmail.com":    "DigitalFiber",
-  "silvia@xlogic.com.br":         "XLogic",
-  "microgm@microesoftloc.com.br": "MicroSoft_Loc",
-
-  // Por domínio
-  "omie.com.br":           "Omie",
-  "executiva.net":         "Executiva",
-  "starseguranca.com":     "Star_Seguranca",
-  "smedtecnologia.com.br": "SMED_Tecnologia",
-  "tld.com.br":            "TLD",
-  "xlogic.com.br":         "XLogic",
-  "microesoftloc.com.br":  "MicroSoft_Loc"
-};
+var FORNECEDORES = obterMapaFornecedores();
 
 var MESES = {
   "01": "Janeiro", "02": "Fevereiro", "03": "Março",
